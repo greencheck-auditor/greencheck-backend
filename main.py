@@ -14,7 +14,8 @@ from fastapi import Depends, HTTPException, Header
 from jose import JWTError, jwt
 from datetime import datetime, timedelta
 from fastapi import FastAPI
-from api_esg_ifrs.app.utils_protegidas import consultar_todos_os_orgaos
+from api.utils_protegidas import consultar_todos_os_orgaos
+
 
 
 def extract_cnpj(text):
