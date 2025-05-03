@@ -9,12 +9,12 @@ import re  # 👈 usamos para buscar o CNPJ no texto
 import httpx  # para consultar APIs externas
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-from dotenv import load_dotenv
-from fastapi import Depends, HTTPException, Header
-from jose import JWTError, jwt
-from datetime import datetime, timedelta
-from fastapi import FastAPI
 from api.utils_protegidas import consultar_todos_os_orgaos
+from dotenv import load_dotenv
+load_dotenv()
+
+EMAIL_SENDER = os.getenv("EMAIL_SENDER")
+EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD")
 
 
 
@@ -38,34 +38,6 @@ async def validate_cnpj(cnpj):
         pass
     return {"status": "inválido ou não encontrado"}
 
-
-load_dotenv()
-
-EMAIL_SENDER = os.getenv("EMAIL_SENDER")
-EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD")
-SECRET_KEY = "seu_secret_aqui"
-ALGORITHM = "HS256"
-EXPIRATION_MINUTES = 60
-
-def create_access_token(data: dict):
-    to_encode = data.copy()
-    expire = datetime.utcnow() + timedelta(minutes=EXPIRATION_MINUTES)
-    to_encode.update({"exp": expire})
-    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-
-def verify_token(token: str):
-    try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        return payload
-    except JWTError:
-        return None
-
-def auth_dependency(authorization: str = Header(...)):
-    token = authorization.replace("Bearer ", "")
-    payload = verify_token(token)
-    if not payload:
-        raise HTTPException(status_code=401, detail="Token inválido ou expirado")
-    return payload
 
 app = FastAPI()
 
@@ -92,8 +64,9 @@ def calcular_score(texto: str) -> int:
     ]
     pontos = sum(1 for palavra in palavras_chave if palavra in texto)
     return min(100, pontos * 10)  # Score de 0 a 100
+
 @app.post("/analyze")
-async def analyze(file: UploadFile = File(...), user=Depends(auth_dependency)):
+async def analyze(file: UploadFile = File(...)):
     filename = file.filename.lower()
     contents = await file.read()
 
@@ -114,6 +87,8 @@ async def analyze(file: UploadFile = File(...), user=Depends(auth_dependency)):
                 text = f.read()
         else:
             return {"error": "Formato de arquivo não suportado"}
+        if not text:
+            return {"error": "Arquivo enviado está vazio ou não pôde ser lido."}
 
         linhas = text.splitlines()
         empresa = next((linha for linha in linhas if "empresa" in linha.lower()), "Empresa Auditada")
@@ -172,10 +147,6 @@ async def send_email(request: Request):
     except Exception as e:
         return JSONResponse(status_code=500, content={"message": f"Erro ao enviar e-mail: {str(e)}"})
 
-@app.post("/token")
-def login_dummy():
-    token = create_access_token({"sub": "usuario_exemplo"})
-    return {"access_token": token, "token_type": "bearer"}
 
 @app.get("/orgaos-publicos/{cnpj}")
 async def consultar_orgaos_publicos(cnpj: str):
