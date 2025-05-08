@@ -9,6 +9,8 @@ import re  # 👈 usamos para buscar o CNPJ no texto
 import httpx  # para consultar APIs externas
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+from pydantic import BaseModel
+from typing import List
 from api.utils_protegidas import consultar_todos_os_orgaos
 from dotenv import load_dotenv
 load_dotenv()
@@ -77,8 +79,9 @@ async def analyze(file: UploadFile = File(...)):
     try:
         if filename.endswith(".pdf"):
             doc = fitz.open(temp_path)
-            text = "".join(page.get_text() for page in doc)
+            text = "".join(page.get_text("text") for page in doc)
             doc.close()
+            print("Texto extraído:", text[:1000])
         elif filename.endswith(".docx"):
             doc = docx.Document(temp_path)
             text = "\n".join([p.text for p in doc.paragraphs])
@@ -122,26 +125,28 @@ async def send_email(request: Request):
     file_name = data.get("fileName", "")
     score = data.get("score", "")
     content = data.get("content", "")
-    receiver = data.get("receiver")
+    emails = data.get("email", "")  # Aqui usamos "email", como vem do frontend
 
-    if not receiver:
+    if not emails:
         return JSONResponse(status_code=400, content={"message": "Endereço de e-mail não fornecido."})
 
+    recipients = [e.strip() for e in emails.split(",") if e.strip()]
     subject = "Resultado da Análise ESG"
     body = f"Arquivo: {file_name}\nPontuação: {score}\n\nConteúdo da Análise:\n{content}"
 
     try:
-        msg = MIMEMultipart()
-        msg['From'] = EMAIL_SENDER
-        msg['To'] = receiver
-        msg['Subject'] = subject
-        msg.attach(MIMEText(body, 'plain'))
+        for receiver in recipients:
+            msg = MIMEMultipart()
+            msg['From'] = EMAIL_SENDER
+            msg['To'] = receiver
+            msg['Subject'] = subject
+            msg.attach(MIMEText(body, 'plain'))
 
-        server = smtplib.SMTP("smtp.gmail.com", 587)
-        server.starttls()
-        server.login(EMAIL_SENDER, EMAIL_PASSWORD)
-        server.send_message(msg)
-        server.quit()
+            server = smtplib.SMTP("smtp.gmail.com", 587)
+            server.starttls()
+            server.login(EMAIL_SENDER, EMAIL_PASSWORD)
+            server.send_message(msg)
+            server.quit()
 
         return JSONResponse(content={"message": "📤 E-mail enviado com sucesso!"})
     except Exception as e:
